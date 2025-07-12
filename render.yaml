@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: bitcoin-converter-v2
+    name: bitcoin-converter-v4
     env: python
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn -w 1 -b 0.0.0.0:$PORT app:app

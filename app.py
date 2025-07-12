@@ -1,6 +1,7 @@
 import os
-from flask import Flask, request, jsonify, session, send_from_directory, render_template_string
+from flask import Flask, request, jsonify, session, render_template_string
 import requests
+import statistics
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'asdf#FGSgvasgf$5$WGT'
@@ -333,6 +334,84 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 </body>
 </html>'''
 
+def get_bitcoin_price_eur():
+    """Hole Bitcoin-Preis in EUR von mehreren zuverlässigen Quellen und berechne den Durchschnitt"""
+    prices = []
+    
+    # 1. CoinGecko
+    try:
+        response = requests.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=eur', timeout=10)
+        data = response.json()
+        if 'bitcoin' in data and 'eur' in data['bitcoin']:
+            prices.append(data['bitcoin']['eur'])
+    except:
+        pass
+    
+    # 2. Kraken
+    try:
+        response = requests.get('https://api.kraken.com/0/public/Ticker?pair=BTCEUR', timeout=10)
+        data = response.json()
+        if 'result' in data and 'XXBTZEUR' in data['result']:
+            prices.append(float(data['result']['XXBTZEUR']['c'][0]))
+    except:
+        pass
+    
+    # 3. Bitstamp
+    try:
+        response = requests.get('https://www.bitstamp.net/api/v2/ticker/btceur/', timeout=10)
+        data = response.json()
+        if 'last' in data:
+            prices.append(float(data['last']))
+    except:
+        pass
+    
+    # Wenn mindestens 2 Preise verfügbar sind, berechne den Durchschnitt
+    if len(prices) >= 2:
+        return statistics.mean(prices)
+    elif len(prices) == 1:
+        return prices[0]
+    else:
+        return None
+
+def get_bitcoin_price_usd():
+    """Hole Bitcoin-Preis in USD von mehreren zuverlässigen Quellen und berechne den Durchschnitt"""
+    prices = []
+    
+    # 1. CoinGecko
+    try:
+        response = requests.get('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd', timeout=10)
+        data = response.json()
+        if 'bitcoin' in data and 'usd' in data['bitcoin']:
+            prices.append(data['bitcoin']['usd'])
+    except:
+        pass
+    
+    # 2. Kraken
+    try:
+        response = requests.get('https://api.kraken.com/0/public/Ticker?pair=BTCUSD', timeout=10)
+        data = response.json()
+        if 'result' in data and 'XXBTZUSD' in data['result']:
+            prices.append(float(data['result']['XXBTZUSD']['c'][0]))
+    except:
+        pass
+    
+    # 3. Bitstamp
+    try:
+        response = requests.get('https://www.bitstamp.net/api/v2/ticker/btcusd/', timeout=10)
+        data = response.json()
+        if 'last' in data:
+            prices.append(float(data['last']))
+    except:
+        pass
+    
+    # Wenn mindestens 2 Preise verfügbar sind, berechne den Durchschnitt
+    if len(prices) >= 2:
+        return statistics.mean(prices)
+    elif len(prices) == 1:
+        return prices[0]
+    else:
+        return None
+
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE)
@@ -357,60 +436,25 @@ def convert():
     session['last_from_currency'] = from_currency
     session['last_to_currency'] = to_currency
 
-    # Try multiple APIs for Bitcoin rates
+    # Get Bitcoin rates with high precision
     try:
-        # First try: Alternative.me API
         if to_currency == 'USD':
-            url = "https://api.alternative.me/v2/ticker/bitcoin/?convert=USD"
+            price = get_bitcoin_price_usd()
+            if price:
+                result = amount * price
+                return jsonify({'result': result})
+        
         elif to_currency == 'EUR':
-            url = "https://api.alternative.me/v2/ticker/bitcoin/?convert=EUR"
+            price = get_bitcoin_price_eur()
+            if price:
+                result = amount * price
+                return jsonify({'result': result})
+        
         else:
             return jsonify({'error': 'Unsupported currency'}), 400
-            
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        if 'data' in data and '1' in data['data']:
-            bitcoin_data = data['data']['1']
-            if to_currency in bitcoin_data['quotes']:
-                price = bitcoin_data['quotes'][to_currency]['price']
-                result = amount * price
-                return jsonify({'result': result})
-        
-        # Fallback: Try CoinGecko API
-        url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,eur"
-        response = requests.get(url, timeout=10)
-        data = response.json()
-        
-        if 'bitcoin' in data:
-            btc_usd = data['bitcoin']['usd']
-            btc_eur = data['bitcoin']['eur']
-            
-            if to_currency == 'USD':
-                result = amount * btc_usd
-            elif to_currency == 'EUR':
-                result = amount * btc_eur
-            else:
-                return jsonify({'error': 'Unsupported currency'}), 400
-                
-            return jsonify({'result': result})
-        
-        # Second fallback: Try CoinDesk API (USD only)
-        if to_currency == 'USD':
-            url = "https://api.coindesk.com/v1/bpi/currentprice.json"
-            response = requests.get(url, timeout=10)
-            data = response.json()
-            
-            if 'bpi' in data and 'USD' in data['bpi']:
-                price_str = data['bpi']['USD']['rate'].replace(',', '').replace('$', '')
-                price = float(price_str)
-                result = amount * price
-                return jsonify({'result': result})
         
         return jsonify({'error': 'Failed to get Bitcoin price from all sources'}), 500
             
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': 'Network error: Unable to fetch Bitcoin price'}), 500
     except Exception as e:
         return jsonify({'error': 'API request failed'}), 500
 
